@@ -1,0 +1,97 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id                String             @id @default(cuid())
+  email             String             @unique
+  name              String?
+  image             String?
+  gmailRefreshToken String?
+  gmailConnectedAt  DateTime?
+  createdAt         DateTime           @default(now())
+  transactions      Transaction[]
+  bills             Bill[]
+  categoryRules     UserCategoryRule[]
+  accounts          Account[]
+  sessions          Session[]
+}
+
+model Transaction {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  gmailMessageId String?   @unique
+  source         String
+  type           String
+  amount         Decimal   @db.Decimal(12, 2)
+  currency       String    @default("CLP")
+  merchant       String
+  categoryId     String?
+  category       Category? @relation(fields: [categoryId], references: [id])
+  date           DateTime
+  rawSnippet     String?
+  createdAt      DateTime  @default(now())
+}
+
+model Bill {
+  id             String    @id @default(cuid())
+  userId         String
+  user           User      @relation(fields: [userId], references: [id])
+  gmailMessageId String?   @unique
+  name           String
+  amount         Decimal   @db.Decimal(12, 2)
+  dueDate        DateTime?
+  paidAt         DateTime?
+  status         String    @default("pending")
+  createdAt      DateTime  @default(now())
+}
+
+model Category {
+  id           String             @id @default(cuid())
+  userId       String?
+  name         String
+  parentId     String?
+  color        String?
+  icon         String?
+  transactions Transaction[]
+  rules        UserCategoryRule[]
+}
+
+model UserCategoryRule {
+  userId     String
+  keyword    String
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+  user       User     @relation(fields: [userId], references: [id])
+  @@unique([userId, keyword])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}

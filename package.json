@@ -1,0 +1,13 @@
+{
+  "name": "finzen",
+  "private": true,
+  "workspaces": ["apps/*", "packages/*"],
+  "scripts": {
+    "dev": "concurrently \"npm run dev -w apps/web\" \"npm run dev -w apps/api\"",
+    "db:migrate": "npm run migrate -w packages/db",
+    "db:seed": "npm run seed -w packages/db"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.0"
+  }
+}
