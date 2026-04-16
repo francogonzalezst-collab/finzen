@@ -10,7 +10,7 @@ const getColor = (cat: string) => CAT_COLORS[cat] || "#94a3b8";
 const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 const today = () => new Date().toISOString().split("T")[0];
 const weekNum = (d: Date) => { const s = new Date(d.getFullYear(), 0, 1); return Math.ceil(((d.getTime() - s.getTime()) / 86400000 + s.getDay() + 1) / 7); };
-const CATEGORIES = ["Alimentación","Transporte","Restaurantes","Servicios","Entretenimiento","Combustible","Salud","Educación","Arriendo","Agua","Luz","Internet","Teléfono","Seguros","Otros"];€€€
+const CATEGORIES = ["Alimentación","Transporte","Restaurantes","Servicios","Entretenimiento","Combustible","Salud","Educación","Arriendo","Agua","Luz","Internet","Teléfono","Seguros","Otros"];
 
 type Tx = { id: string; merchant: string; amount: number; type: string; category: string; date: string; source?: string };
 type FixedExp = { id: string; name: string; amount: number; category: string; dueDay: number };
