@@ -3,646 +3,129 @@ import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useMemo } from "react";
 
-/* ─── helpers ─── */
-const CLP = (n: number) =>
-  "$" + Math.abs(Math.round(n)).toLocaleString("es-CL");
-
+const CLP = (n: number) => "$" + Math.abs(Math.round(n)).toLocaleString("es-CL");
 const MONTHS = ["Ene","Feb","Mar","Abr","May","Jun","Jul","Ago","Sep","Oct","Nov","Dic"];
-
-const CAT_COLORS: Record<string, string> = {
-  "Alimentación": "#6366f1",
-  "Transporte": "#06b6d4",
-  "Restaurantes": "#f59e0b",
-  "Servicios": "#ef4444",
-  "Entretenimiento": "#8b5cf6",
-  "Combustible": "#f97316",
-  "Ingresos": "#10b981",
-  "Salud": "#ec4899",
-  "Educación": "#3b82f6",
-  "Otros": "#94a3b8",
-};
-
+const CAT_COLORS: Record<string, string> = {"Alimentación":"#6366f1","Transporte":"#06b6d4","Restaurantes":"#f59e0b","Servicios":"#ef4444","Entretenimiento":"#8b5cf6","Combustible":"#f97316","Ingresos":"#10b981","Salud":"#ec4899","Educación":"#3b82f6","Arriendo":"#7c3aed","Agua":"#0891b2","Luz":"#eab308","Internet":"#2563eb","Teléfono":"#d946ef","Seguros":"#0d9488","Otros":"#94a3b8"};
 const getColor = (cat: string) => CAT_COLORS[cat] || "#94a3b8";
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+const today = () => new Date().toISOString().split("T")[0];
+const weekNum = (d: Date) => { const s = new Date(d.getFullYear(), 0, 1); return Math.ceil(((d.getTime() - s.getTime()) / 86400000 + s.getDay() + 1) / 7); };
+const CATEGORIES = ["Alimentación","Transporte","Restaurantes","Servicios","Entretenimiento","Combustible","Salud","Educación","Arriendo","Agua","Luz","Internet","Teléfono","Seguros","Otros"];€€€
 
-/* ─── chart components ─── */
-function BarChart({ data }: { data: { label: string; value: number }[] }) {
-  const max = Math.max(...data.map((d) => d.value), 1);
-  const steps = 4;
-  return (
-    <div style={{ width: "100%", height: 220, display: "flex", flexDirection: "column" }}>
-      <div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 6, position: "relative", paddingLeft: 50 }}>
-        {/* Y axis */}
-        {Array.from({ length: steps + 1 }).map((_, i) => {
-          const val = Math.round((max / steps) * (steps - i));
-          return (
-            <div key={i} style={{ position: "absolute", left: 0, top: `${(i / steps) * 100}%`, width: "100%", display: "flex", alignItems: "center" }}>
-              <span style={{ fontSize: 10, color: "#94a3b8", width: 45, textAlign: "right", paddingRight: 8, fontFamily: "'DM Sans', sans-serif" }}>
-                {val >= 1000000 ? `${(val / 1000000).toFixed(1)}M` : val >= 1000 ? `${(val / 1000).toFixed(0)}K` : val}
-              </span>
-              <div style={{ flex: 1, borderTop: "1px solid #f1f5f9", height: 0 }} />
-            </div>
-          );
-        })}
-        {/* Bars */}
-        <div style={{ display: "flex", alignItems: "flex-end", gap: 6, flex: 1, zIndex: 1, paddingBottom: 2 }}>
-          {data.map((d, i) => (
-            <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}>
-              <div
-                style={{
-                  width: "100%",
-                  maxWidth: 36,
-                  height: `${Math.max((d.value / max) * 180, 4)}px`,
-                  background: "linear-gradient(180deg, #6366f1 0%, #818cf8 100%)",
-                  borderRadius: "6px 6px 2px 2px",
-                  transition: "height 0.6s cubic-bezier(0.34, 1.56, 0.64, 1)",
-                  cursor: "pointer",
-                  position: "relative",
-                }}
-                title={`${d.label}: ${CLP(d.value)}`}
-              />
-            </div>
-          ))}
-        </div>
-      </div>
-      {/* X axis labels */}
-      <div style={{ display: "flex", gap: 6, paddingLeft: 50, marginTop: 8 }}>
-        {data.map((d, i) => (
-          <div key={i} style={{ flex: 1, textAlign: "center", fontSize: 10, color: "#94a3b8", fontFamily: "'DM Sans', sans-serif" }}>
-            {d.label}
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+type Tx = { id: string; merchant: string; amount: number; type: string; category: string; date: string; source?: string };
+type FixedExp = { id: string; name: string; amount: number; category: string; dueDay: number };
+type BudgetCat = { category: string; limit: number };
+type SavingsConfig = { pct: number; goalName: string; goalAmount: number };
+
+function HBar({ value, max, color, label, amount }: { value: number; max: number; color: string; label: string; amount: string }) {
+  const pct = max > 0 ? Math.min((value / max) * 100, 100) : 0; const over = value > max;
+  return (<div style={{ marginBottom: 14 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontSize: 13, fontWeight: 500 }}>{label}</span><span style={{ fontSize: 13, fontWeight: 600, color: over ? "#ef4444" : "#1e293b" }}>{amount} <span style={{ color: "#94a3b8", fontWeight: 400 }}>/ {CLP(max)}</span></span></div><div style={{ height: 8, borderRadius: 4, background: "#f1f5f9", overflow: "hidden" }}><div style={{ height: "100%", width: `${Math.min(pct, 100)}%`, borderRadius: 4, background: over ? "#ef4444" : color, transition: "width .6s ease" }} /></div><div style={{ display: "flex", justifyContent: "space-between", marginTop: 3 }}><span style={{ fontSize: 10, color: over ? "#ef4444" : "#94a3b8", fontWeight: over ? 600 : 400 }}>{over ? "⚠️ Excedido" : `${Math.round(pct)}% usado`}</span><span style={{ fontSize: 10, color: over ? "#ef4444" : "#10b981" }}>{over ? `-${CLP(value - max)}` : `${CLP(max - value)} disponible`}</span></div></div>);
 }
-
 function DonutChart({ data }: { data: { category: string; amount: number }[] }) {
-  const total = data.reduce((s, d) => s + d.amount, 0);
-  if (total === 0) return null;
-  const radius = 70;
-  const stroke = 28;
-  const circumference = 2 * Math.PI * radius;
-  let offset = 0;
-
-  return (
-    <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}>
-      <div style={{ position: "relative", width: 180, height: 180 }}>
-        <svg width="180" height="180" viewBox="0 0 180 180">
-          <circle cx="90" cy="90" r={radius} fill="none" stroke="#f1f5f9" strokeWidth={stroke} />
-          {data.map((d, i) => {
-            const pct = d.amount / total;
-            const dash = pct * circumference;
-            const gap = circumference - dash;
-            const currentOffset = offset;
-            offset += dash;
-            return (
-              <circle
-                key={i}
-                cx="90" cy="90" r={radius}
-                fill="none"
-                stroke={getColor(d.category)}
-                strokeWidth={stroke}
-                strokeDasharray={`${dash} ${gap}`}
-                strokeDashoffset={-currentOffset}
-                strokeLinecap="round"
-                style={{ transform: "rotate(-90deg)", transformOrigin: "center", transition: "stroke-dasharray 0.8s ease" }}
-              />
-            );
-          })}
-        </svg>
-        <div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}>
-          <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "'DM Sans', sans-serif" }}>Total</span>
-          <span style={{ fontSize: 18, fontWeight: 700, color: "#1e293b", fontFamily: "'DM Sans', sans-serif" }}>{CLP(total)}</span>
-        </div>
-      </div>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", justifyContent: "center" }}>
-        {data.map((d, i) => (
-          <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-            <div style={{ width: 8, height: 8, borderRadius: 2, background: getColor(d.category) }} />
-            <span style={{ fontSize: 11, color: "#64748b", fontFamily: "'DM Sans', sans-serif" }}>{d.category}</span>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
+  const total = data.reduce((s, d) => s + d.amount, 0); if (total === 0) return null;
+  const r = 70, sw = 28, circ = 2 * Math.PI * r; let off = 0;
+  return (<div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 16 }}><div style={{ position: "relative", width: 180, height: 180 }}><svg width="180" height="180" viewBox="0 0 180 180"><circle cx="90" cy="90" r={r} fill="none" stroke="#f1f5f9" strokeWidth={sw} />{data.map((d, i) => { const pct = d.amount / total, dash = pct * circ, gap = circ - dash, co = off; off += dash; return <circle key={i} cx="90" cy="90" r={r} fill="none" stroke={getColor(d.category)} strokeWidth={sw} strokeDasharray={`${dash} ${gap}`} strokeDashoffset={-co} strokeLinecap="round" style={{ transform: "rotate(-90deg)", transformOrigin: "center" }} />; })}</svg><div style={{ position: "absolute", inset: 0, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center" }}><span style={{ fontSize: 11, color: "#94a3b8" }}>Total</span><span style={{ fontSize: 18, fontWeight: 700 }}>{CLP(total)}</span></div></div><div style={{ display: "flex", flexWrap: "wrap", gap: "6px 16px", justifyContent: "center" }}>{data.map((d, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}><div style={{ width: 8, height: 8, borderRadius: 2, background: getColor(d.category) }} /><span style={{ fontSize: 11, color: "#64748b" }}>{d.category}</span></div>)}</div></div>);
+}
+function BarChart({ data }: { data: { label: string; value: number }[] }) {
+  const max = Math.max(...data.map(d => d.value), 1);
+  return (<div style={{ width: "100%", height: 200, display: "flex", flexDirection: "column" }}><div style={{ flex: 1, display: "flex", alignItems: "flex-end", gap: 6, paddingLeft: 45, position: "relative" }}>{[0,1,2,3,4].map(i => { const val = Math.round((max / 4) * (4 - i)); return (<div key={i} style={{ position: "absolute", left: 0, top: `${(i / 4) * 100}%`, width: "100%", display: "flex", alignItems: "center" }}><span style={{ fontSize: 10, color: "#94a3b8", width: 40, textAlign: "right", paddingRight: 8 }}>{val >= 1e6 ? `${(val / 1e6).toFixed(1)}M` : val >= 1e3 ? `${(val / 1e3).toFixed(0)}K` : val}</span><div style={{ flex: 1, borderTop: "1px solid #f1f5f9" }} /></div>); })}<div style={{ display: "flex", alignItems: "flex-end", gap: 6, flex: 1, zIndex: 1 }}>{data.map((d, i) => <div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center" }}><div style={{ width: "100%", maxWidth: 36, height: `${Math.max((d.value / max) * 170, 4)}px`, background: "linear-gradient(180deg,#6366f1,#818cf8)", borderRadius: "6px 6px 2px 2px", transition: "height .6s ease" }} title={`${d.label}: ${CLP(d.value)}`} /></div>)}</div></div><div style={{ display: "flex", gap: 6, paddingLeft: 45, marginTop: 8 }}>{data.map((d, i) => <div key={i} style={{ flex: 1, textAlign: "center", fontSize: 10, color: "#94a3b8" }}>{d.label}</div>)}</div></div>);
+}
+function Modal({ open, onClose, title, children }: any) {
+  if (!open) return null;
+  return (<div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,.3)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 999, padding: 16 }} onClick={onClose}><div style={{ background: "#fff", borderRadius: 20, padding: 24, maxWidth: 440, width: "100%", maxHeight: "80vh", overflowY: "auto", boxShadow: "0 20px 60px rgba(0,0,0,.15)" }} onClick={(e: any) => e.stopPropagation()}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}><h3 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>{title}</h3><button onClick={onClose} style={{ background: "#f1f5f9", border: "none", width: 32, height: 32, borderRadius: 8, cursor: "pointer", fontSize: 16, color: "#64748b" }}>✕</button></div>{children}</div></div>);
 }
 
-/* ─── main ─── */
+const IS: any = { width: "100%", padding: "10px 14px", border: "1px solid #e2e8f0", borderRadius: 10, fontSize: 14, fontFamily: "'DM Sans',sans-serif", color: "#1e293b", outline: "none", boxSizing: "border-box" };
+const SS: any = { ...IS, background: "#fff", cursor: "pointer" };
+const BP: any = { background: "linear-gradient(135deg,#6366f1,#818cf8)", color: "#fff", border: "none", padding: "10px 20px", borderRadius: 10, fontSize: 14, fontWeight: 600, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", width: "100%" };
+const BS: any = { background: "#f1f5f9", color: "#64748b", border: "none", padding: "10px 20px", borderRadius: 10, fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "'DM Sans',sans-serif" };
+
 export default function Dashboard() {
-  const { data: session, status } = useSession();
-  const router = useRouter();
-  const [scanning, setScanning] = useState(false);
-  const [txs, setTxs] = useState<any[]>([]);
-  const [error, setError] = useState("");
-  const [progress, setProgress] = useState("");
+  const { data: session, status } = useSession(); const router = useRouter();
   const [tab, setTab] = useState("dashboard");
-  const [saved, setSaved] = useState(false);
-  const [filterPeriod, setFilterPeriod] = useState("all");
+  const [scanning, setScanning] = useState(false); const [txs, setTxs] = useState<Tx[]>([]); const [error, setError] = useState(""); const [progress, setProgress] = useState(""); const [saved, setSaved] = useState(false);
+  const [manualTxs, setManualTxs] = useState<Tx[]>([]); const [showAddTx, setShowAddTx] = useState(false); const [newTx, setNewTx] = useState({ merchant: "", amount: "", category: "Otros", type: "expense", date: today() });
+  const [fixedExps, setFixedExps] = useState<FixedExp[]>([]); const [showAddFixed, setShowAddFixed] = useState(false); const [newFixed, setNewFixed] = useState({ name: "", amount: "", category: "Servicios", dueDay: "1" });
+  const [budgetCats, setBudgetCats] = useState<BudgetCat[]>([]); const [showAddBudget, setShowAddBudget] = useState(false); const [newBudget, setNewBudget] = useState({ category: "Alimentación", limit: "" }); const [totalBudget, setTotalBudget] = useState(0);
+  const [savingsConfig, setSavingsConfig] = useState<SavingsConfig>({ pct: 10, goalName: "Fondo de emergencia", goalAmount: 1000000 }); const [savingsDeposits, setSavingsDeposits] = useState<{ id: string; amount: number; date: string }[]>([]); const [showAddDeposit, setShowAddDeposit] = useState(false); const [newDeposit, setNewDeposit] = useState(""); const [editingSavings, setEditingSavings] = useState(false);
+  const [calcIncome, setCalcIncome] = useState(""); const [calcExpenses, setCalcExpenses] = useState(""); const [calcMonths, setCalcMonths] = useState("12");
 
-  useEffect(() => {
-    if (status === "unauthenticated") router.push("/login");
-  }, [status, router]);
+  useEffect(() => { if (status === "unauthenticated") router.push("/login"); }, [status, router]);
+  useEffect(() => { try { const g = (k: string) => { const v = localStorage.getItem(k); return v ? JSON.parse(v) : null; }; const t = g("finzen-txs"); if (t) setTxs(t); const m = g("finzen-manual"); if (m) setManualTxs(m); const f = g("finzen-fixed"); if (f) setFixedExps(f); const bc = g("finzen-budget-cats"); if (bc) setBudgetCats(bc); const bt = g("finzen-budget-total"); if (bt) setTotalBudget(bt); const sc = g("finzen-savings"); if (sc) setSavingsConfig(sc); const sd = g("finzen-deposits"); if (sd) setSavingsDeposits(sd); } catch {} }, []);
 
-  useEffect(() => {
-    const stored = localStorage.getItem("finzen-txs");
-    if (stored) setTxs(JSON.parse(stored));
-  }, []);
+  const sv = (k: string, v: any, set: any) => { set(v); localStorage.setItem(k, JSON.stringify(v)); };
+  const saveManual = (v: Tx[]) => sv("finzen-manual", v, setManualTxs);
+  const saveFixed = (v: FixedExp[]) => sv("finzen-fixed", v, setFixedExps);
+  const saveBudgetCats = (v: BudgetCat[]) => sv("finzen-budget-cats", v, setBudgetCats);
+  const saveTotalBudget = (v: number) => sv("finzen-budget-total", v, setTotalBudget);
+  const saveSavingsConfig = (v: SavingsConfig) => sv("finzen-savings", v, setSavingsConfig);
+  const saveSavingsDeposits = (v: typeof savingsDeposits) => sv("finzen-deposits", v, setSavingsDeposits);
 
   async function scan() {
-    setScanning(true); setError(""); setSaved(false);
-    const token = (session as any)?.accessToken;
+    setScanning(true); setError(""); setSaved(false); const token = (session as any)?.accessToken;
     if (!token) { setError("Sin token — vuelve a hacer login"); setScanning(false); return; }
-    try {
-      setProgress("Buscando correos bancarios...");
-      const g = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:santander.cl OR from:bancochile.cl&maxResults=20", { headers: { Authorization: "Bearer " + token } }).then(r => r.json());
-      const msgs = g.messages || [];
-      if (!msgs.length) { setError("No hay correos bancarios"); setScanning(false); return; }
-      const results = [];
-      for (let i = 0; i < Math.min(msgs.length, 15); i++) {
-        setProgress("Analizando correo " + (i + 1) + " de " + Math.min(msgs.length, 15) + "...");
-        const m = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages/" + msgs[i].id + "?format=full", { headers: { Authorization: "Bearer " + token } }).then(r => r.json());
-        const subject = m.payload?.headers?.find((h: any) => h.name === "Subject")?.value || "";
-        const from = m.payload?.headers?.find((h: any) => h.name === "From")?.value || "";
-        const snippet = m.snippet || "";
-        const p = await fetch("http://localhost:4000/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject, from, snippet }) }).then(r => r.json());
-        if (p.transaction) results.push({ ...p.transaction, id: msgs[i].id });
-      }
-      setTxs(results);
-      localStorage.setItem("finzen-txs", JSON.stringify(results));
-      setSaved(true);
-      setProgress("");
-    } catch (e: any) { setError(e.message); }
-    setScanning(false);
+    try { setProgress("Buscando correos..."); const g = await fetch("https://gmail.googleapis.com/gmail/v1/users/me/messages?q=from:santander.cl OR from:bancochile.cl&maxResults=20", { headers: { Authorization: "Bearer " + token } }).then(r => r.json()); const msgs = g.messages || []; if (!msgs.length) { setError("No hay correos bancarios"); setScanning(false); return; } const results: Tx[] = []; for (let i = 0; i < Math.min(msgs.length, 15); i++) { setProgress(`Correo ${i + 1}/${Math.min(msgs.length, 15)}...`); const m = await fetch(`https://gmail.googleapis.com/gmail/v1/users/me/messages/${msgs[i].id}?format=full`, { headers: { Authorization: "Bearer " + token } }).then(r => r.json()); const sub = m.payload?.headers?.find((h: any) => h.name === "Subject")?.value || ""; const from = m.payload?.headers?.find((h: any) => h.name === "From")?.value || ""; const p = await fetch("http://localhost:4000/api/parse", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ subject: sub, from, snippet: m.snippet || "" }) }).then(r => r.json()); if (p.transaction) results.push({ ...p.transaction, id: msgs[i].id, source: "gmail" }); } setTxs(results); localStorage.setItem("finzen-txs", JSON.stringify(results)); setSaved(true); setProgress(""); } catch (e: any) { setError(e.message); } setScanning(false);
   }
 
-  /* ─── derived data ─── */
-  const expenses = useMemo(() => txs.filter(t => t.type !== "income"), [txs]);
+  const allTxs = useMemo(() => [...txs, ...manualTxs].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [txs, manualTxs]);
+  const expenses = useMemo(() => allTxs.filter(t => t.type !== "income"), [allTxs]);
   const totalExp = useMemo(() => expenses.reduce((s, t) => s + (t.amount || 0), 0), [expenses]);
-  const totalInc = useMemo(() => txs.filter(t => t.type === "income").reduce((s, t) => s + (t.amount || 0), 0), [txs]);
+  const totalInc = useMemo(() => allTxs.filter(t => t.type === "income").reduce((s, t) => s + (t.amount || 0), 0), [allTxs]);
+  const fixedTotal = useMemo(() => fixedExps.reduce((s, e) => s + e.amount, 0), [fixedExps]);
   const balance = totalInc - totalExp;
+  const catData = useMemo(() => { const b: Record<string, number> = {}; expenses.forEach(t => { b[t.category || "Otros"] = (b[t.category || "Otros"] || 0) + (t.amount || 0); }); fixedExps.forEach(f => { b[f.category || "Otros"] = (b[f.category || "Otros"] || 0) + f.amount; }); return Object.entries(b).map(([k, v]) => ({ category: k, amount: v })).sort((a, b) => b.amount - a.amount); }, [expenses, fixedExps]);
+  const barData = useMemo(() => { const bm: Record<string, number> = {}; expenses.forEach(t => { if (t.date) { const d = new Date(t.date); const k = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`; bm[k] = (bm[k] || 0) + (t.amount || 0); } }); const s = Object.entries(bm).sort((a, b) => a[0].localeCompare(b[0])); return s.length > 0 ? s.map(([k, v]) => ({ label: MONTHS[parseInt(k.split("-")[1])], value: v })) : MONTHS.slice(0, 6).map(m => ({ label: m, value: 0 })); }, [expenses]);
+  const budgetSpent = useMemo(() => { const s: Record<string, number> = {}; expenses.forEach(t => { s[t.category || "Otros"] = (s[t.category || "Otros"] || 0) + (t.amount || 0); }); fixedExps.forEach(f => { s[f.category || "Otros"] = (s[f.category || "Otros"] || 0) + f.amount; }); return s; }, [expenses, fixedExps]);
+  const totalSpentAll = totalExp + fixedTotal;
+  const totalSaved = useMemo(() => savingsDeposits.reduce((s, d) => s + d.amount, 0), [savingsDeposits]);
+  const suggestedSaving = Math.round(totalInc * savingsConfig.pct / 100);
+  const savingsGoalPct = savingsConfig.goalAmount > 0 ? Math.min(Math.round((totalSaved / savingsConfig.goalAmount) * 100), 100) : 0;
+  const weeklySavings = useMemo(() => { const n = new Date(), tw = weekNum(n); return savingsDeposits.filter(d => { const dd = new Date(d.date); return dd.getFullYear() === n.getFullYear() && weekNum(dd) === tw; }).reduce((s, d) => s + d.amount, 0); }, [savingsDeposits]);
+  const monthlySavings = useMemo(() => { const n = new Date(); return savingsDeposits.filter(d => { const dd = new Date(d.date); return dd.getFullYear() === n.getFullYear() && dd.getMonth() === n.getMonth(); }).reduce((s, d) => s + d.amount, 0); }, [savingsDeposits]);
+  const calcResult = useMemo(() => { const inc = parseFloat(calcIncome) || 0, exp = parseFloat(calcExpenses) || 0, mo = parseInt(calcMonths) || 12, ms = Math.round(inc * savingsConfig.pct / 100), av = inc - exp - ms; return { monthSave: ms, available: av, totalSave: ms * mo, totalAvailable: av * mo }; }, [calcIncome, calcExpenses, calcMonths, savingsConfig.pct]);
 
-  const catData = useMemo(() => {
-    const bycat = expenses.reduce((a: any, t) => {
-      a[t.category || "Otros"] = (a[t.category || "Otros"] || 0) + (t.amount || 0);
-      return a;
-    }, {});
-    return Object.entries(bycat).map(([k, v]) => ({ category: k, amount: v as number })).sort((a, b) => b.amount - a.amount);
-  }, [expenses]);
+  function addManualTx() { if (!newTx.merchant || !newTx.amount) return; saveManual([...manualTxs, { id: uid(), merchant: newTx.merchant, amount: parseFloat(newTx.amount), type: newTx.type, category: newTx.category, date: newTx.date, source: "manual" }]); setNewTx({ merchant: "", amount: "", category: "Otros", type: "expense", date: today() }); setShowAddTx(false); }
+  function addFixedExp() { if (!newFixed.name || !newFixed.amount) return; saveFixed([...fixedExps, { id: uid(), name: newFixed.name, amount: parseFloat(newFixed.amount), category: newFixed.category, dueDay: parseInt(newFixed.dueDay) }]); setNewFixed({ name: "", amount: "", category: "Servicios", dueDay: "1" }); setShowAddFixed(false); }
+  function addBudgetCat() { if (!newBudget.limit) return; const ex = budgetCats.find(b => b.category === newBudget.category); if (ex) saveBudgetCats(budgetCats.map(b => b.category === newBudget.category ? { ...b, limit: parseFloat(newBudget.limit) } : b)); else saveBudgetCats([...budgetCats, { category: newBudget.category, limit: parseFloat(newBudget.limit) }]); setNewBudget({ category: "Alimentación", limit: "" }); setShowAddBudget(false); }
+  function addDeposit() { if (!newDeposit) return; saveSavingsDeposits([...savingsDeposits, { id: uid(), amount: parseFloat(newDeposit), date: today() }]); setNewDeposit(""); setShowAddDeposit(false); }
 
-  const barData = useMemo(() => {
-    const byMonth: Record<string, number> = {};
-    expenses.forEach(t => {
-      if (t.date) {
-        const d = new Date(t.date);
-        const key = `${d.getFullYear()}-${String(d.getMonth()).padStart(2, "0")}`;
-        byMonth[key] = (byMonth[key] || 0) + (t.amount || 0);
-      }
-    });
-    const sorted = Object.entries(byMonth).sort((a, b) => a[0].localeCompare(b[0]));
-    return sorted.length > 0
-      ? sorted.map(([k, v]) => ({ label: MONTHS[parseInt(k.split("-")[1])], value: v }))
-      : MONTHS.slice(0, 6).map(m => ({ label: m, value: 0 }));
-  }, [expenses]);
+  if (status === "loading") return <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc" }}><div style={{ width: 40, height: 40, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin .8s linear infinite" }} /><style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style></div>;
 
-  const topCategory = catData[0];
-  const txCount = txs.length;
-  const expPct = totalInc > 0 ? Math.min(Math.round((totalExp / totalInc) * 100), 100) : 0;
+  const NAV = [{ id: "dashboard", label: "Inicio", icon: "📊" }, { id: "transactions", label: "Movimientos", icon: "📋" }, { id: "budget", label: "Presupuesto", icon: "🎯" }, { id: "savings", label: "Ahorro", icon: "🐷" }, { id: "analytics", label: "Análisis", icon: "📈" }];
 
-  if (status === "loading") return (
-    <div style={{ minHeight: "100vh", display: "flex", alignItems: "center", justifyContent: "center", background: "#f8fafc", fontFamily: "'DM Sans', sans-serif" }}>
-      <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
-        <div style={{ width: 40, height: 40, border: "3px solid #e2e8f0", borderTopColor: "#6366f1", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-        <span style={{ color: "#64748b", fontSize: 14 }}>Cargando...</span>
-      </div>
-      <style>{`@keyframes spin { to { transform: rotate(360deg) } }`}</style>
+  return (<>
+    <style>{`@import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');@keyframes spin{to{transform:rotate(360deg)}}@keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}.fc{background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:20px;transition:box-shadow .2s}.fc:hover{box-shadow:0 4px 24px rgba(0,0,0,.06)}.fn{cursor:pointer;padding:8px 16px;border-radius:10px;font-size:13px;font-weight:500;transition:all .2s;display:flex;align-items:center;gap:6px;white-space:nowrap}.fa{background:#6366f1;color:#fff!important}.fr{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid #f1f5f9}.fr:last-child{border-bottom:none}.ff{display:flex;flex-direction:column;gap:6px}.ff label{font-size:12px;font-weight:600;color:#64748b}.st{margin:0 0 16px;font-size:14px;font-weight:600;text-transform:uppercase;letter-spacing:.05em;color:#64748b}@media(max-width:768px){.fg{flex-direction:column!important}.fs{max-width:100%!important}.hm{display:none!important}.ns{overflow-x:auto}}`}</style>
+    <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans',sans-serif", color: "#1e293b" }}>
+      <header style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "0 20px", position: "sticky", top: 0, zIndex: 50 }}><div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 60 }}><div style={{ display: "flex", alignItems: "center", gap: 24 }}><div style={{ fontSize: 20, fontWeight: 700, color: "#6366f1" }}>FinZen <span style={{ color: "#c7d2fe" }}>✦</span></div><nav className="ns" style={{ display: "flex", gap: 4 }}>{NAV.map(n => <div key={n.id} className={`fn ${tab === n.id ? "fa" : ""}`} onClick={() => setTab(n.id)} style={{ color: tab === n.id ? "#fff" : "#64748b" }}><span>{n.icon}</span><span>{n.label}</span></div>)}</nav></div><div style={{ display: "flex", alignItems: "center", gap: 12 }}><span className="hm" style={{ fontSize: 13, color: "#64748b" }}>{session?.user?.name}</span><button onClick={() => signOut({ callbackUrl: "/login" })} style={{ background: "#f1f5f9", color: "#64748b", padding: "8px 14px", borderRadius: 10, fontSize: 13, border: "none", cursor: "pointer" }}>Salir</button></div></div></header>
+      <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 20px 100px" }}>
+        {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#dc2626" }}>⚠️ {error}</div>}
+        {saved && <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 16, fontSize: 13, color: "#16a34a", animation: "fadeIn .4s ease" }}>✅ {txs.length} transacciones detectadas</div>}
+
+        {tab === "dashboard" && <><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}><div><h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Dashboard</h1><p style={{ fontSize: 14, color: "#94a3b8", margin: "4px 0 0" }}>Tus indicadores financieros</p></div><button onClick={!scanning ? scan : undefined} style={{ background: scanning ? "#e2e8f0" : "linear-gradient(135deg,#6366f1,#818cf8)", color: scanning ? "#64748b" : "#fff", padding: "10px 20px", borderRadius: 12, fontSize: 14, fontWeight: 600, border: "none", cursor: "pointer", display: "flex", alignItems: "center", gap: 8 }}>{scanning ? <><div style={{ width: 16, height: 16, border: "2px solid #94a3b8", borderTopColor: "transparent", borderRadius: "50%", animation: "spin .8s linear infinite" }} />{progress}</> : <>📧 Detectar gastos</>}</button></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 16, marginBottom: 24 }}>{[{ l: "Ingresos", v: CLP(totalInc), c: "#10b981", bg: "#f0fdf4", i: "↗" }, { l: "Gastos", v: CLP(totalExp + fixedTotal), c: "#ef4444", bg: "#fef2f2", i: "↘" }, { l: "Balance", v: CLP(balance - fixedTotal), c: balance - fixedTotal >= 0 ? "#10b981" : "#ef4444", bg: balance - fixedTotal >= 0 ? "#f0fdf4" : "#fef2f2", i: balance - fixedTotal >= 0 ? "▲" : "▼" }, { l: "Ahorrado", v: CLP(totalSaved), c: "#6366f1", bg: "#eef2ff", i: "🐷" }, { l: "Transacciones", v: String(allTxs.length), c: "#f59e0b", bg: "#fffbeb", i: "#" }].map((m, i) => <div className="fc" key={i} style={{ animation: `fadeIn .4s ease ${i * .08}s both` }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}><span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".05em" }}>{m.l}</span><span style={{ width: 30, height: 30, borderRadius: 8, background: m.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, color: m.c }}>{m.i}</span></div><div style={{ fontSize: 20, fontWeight: 700 }}>{m.v}</div></div>)}</div>
+          <div className="fg" style={{ display: "flex", gap: 20 }}><div style={{ flex: 2, minWidth: 0, display: "flex", flexDirection: "column", gap: 20 }}><div className="fc"><h3 className="st">Resumen por período</h3>{barData.some(d => d.value > 0) ? <BarChart data={barData} /> : <div style={{ height: 180, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>Registra gastos para ver el gráfico</div>}</div><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 20 }}><div className="fc"><h3 className="st">Gastos por categoría</h3>{catData.length > 0 ? <DonutChart data={catData} /> : <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>Sin datos</div>}</div><div className="fc"><h3 className="st">Gastos fijos</h3>{fixedExps.length === 0 ? <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>Configura en Presupuesto</div> : <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>{fixedExps.map((f, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 12px", background: "#f8fafc", borderRadius: 10 }}><div><div style={{ fontSize: 13, fontWeight: 600 }}>{f.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{f.category}</div></div><span style={{ fontSize: 14, fontWeight: 700, color: "#ef4444" }}>-{CLP(f.amount)}</span></div>)}<div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 8, display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>Total</span><span style={{ fontSize: 15, fontWeight: 700 }}>{CLP(fixedTotal)}</span></div></div>}</div></div></div>
+            <div className="fs" style={{ flex: 1, minWidth: 280, maxWidth: 340, display: "flex", flexDirection: "column", gap: 20 }}><div className="fc"><h3 className="st">Últimas transacciones</h3>{allTxs.length === 0 ? <div style={{ padding: "24px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Sin movimientos</div> : allTxs.slice(0, 5).map((tx, i) => <div className="fr" key={i}><div style={{ width: 34, height: 34, borderRadius: 10, background: tx.type === "income" ? "#f0fdf4" : "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14 }}>{tx.type === "income" ? "💰" : tx.source === "manual" ? "💵" : "💸"}</div><div style={{ flex: 1, minWidth: 0 }}><div style={{ fontSize: 13, fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.merchant}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{tx.category}</div></div><span style={{ fontWeight: 700, fontSize: 13, color: tx.type === "income" ? "#10b981" : "#1e293b" }}>{tx.type === "income" ? "+" : "-"}{CLP(tx.amount)}</span></div>)}</div>
+              <div className="fc" style={{ background: "linear-gradient(135deg,#eef2ff,#e0e7ff)", border: "1px solid #c7d2fe" }}><div style={{ fontSize: 12, fontWeight: 700, color: "#6366f1", marginBottom: 4 }}>🐷 META DE AHORRO</div><div style={{ fontSize: 16, fontWeight: 700, marginBottom: 2 }}>{savingsConfig.goalName}</div><div style={{ fontSize: 13, color: "#64748b", marginBottom: 12 }}>{CLP(totalSaved)} de {CLP(savingsConfig.goalAmount)}</div><div style={{ height: 8, borderRadius: 4, background: "#c7d2fe", overflow: "hidden" }}><div style={{ height: "100%", width: `${savingsGoalPct}%`, background: "#6366f1", borderRadius: 4 }} /></div><div style={{ fontSize: 11, color: "#6366f1", marginTop: 4, fontWeight: 600 }}>{savingsGoalPct}% completado</div></div></div></div></>}
+
+        {tab === "transactions" && <><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 24, flexWrap: "wrap", gap: 12 }}><h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Movimientos ({allTxs.length})</h1><button onClick={() => setShowAddTx(true)} style={{ ...BP, width: "auto" }}>+ Registrar gasto/ingreso</button></div><div className="fc">{allTxs.length === 0 ? <div style={{ padding: "60px 0", textAlign: "center", color: "#94a3b8" }}>Registra movimientos</div> : allTxs.map((tx, i) => <div className="fr" key={i}><div style={{ width: 40, height: 40, borderRadius: 12, background: tx.type === "income" ? "#f0fdf4" : "#eef2ff", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>{tx.type === "income" ? "💰" : tx.source === "manual" ? "💵" : "💸"}</div><div style={{ flex: 1 }}><div style={{ fontSize: 14, fontWeight: 600 }}>{tx.merchant}</div><div style={{ fontSize: 12, color: "#94a3b8" }}>{tx.category} · {tx.date} · {tx.source === "manual" ? "Manual" : "Gmail"}</div></div><div style={{ fontWeight: 700, fontSize: 14, color: tx.type === "income" ? "#10b981" : "#1e293b" }}>{tx.type === "income" ? "+" : "-"}{CLP(tx.amount)}</div>{tx.source === "manual" && <button onClick={() => saveManual(manualTxs.filter(m => m.id !== tx.id))} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 14, color: "#94a3b8" }}>🗑</button>}</div>)}</div><Modal open={showAddTx} onClose={() => setShowAddTx(false)} title="Registrar movimiento"><div style={{ display: "flex", flexDirection: "column", gap: 14 }}><div className="ff"><label>Tipo</label><select style={SS} value={newTx.type} onChange={e => setNewTx({ ...newTx, type: e.target.value })}><option value="expense">Gasto</option><option value="income">Ingreso</option></select></div><div className="ff"><label>Descripción</label><input style={IS} placeholder="Ej: Supermercado" value={newTx.merchant} onChange={e => setNewTx({ ...newTx, merchant: e.target.value })} /></div><div className="ff"><label>Monto (CLP)</label><input style={IS} type="number" placeholder="25000" value={newTx.amount} onChange={e => setNewTx({ ...newTx, amount: e.target.value })} /></div><div className="ff"><label>Categoría</label><select style={SS} value={newTx.category} onChange={e => setNewTx({ ...newTx, category: e.target.value })}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div><div className="ff"><label>Fecha</label><input style={IS} type="date" value={newTx.date} onChange={e => setNewTx({ ...newTx, date: e.target.value })} /></div><button style={BP} onClick={addManualTx}>Guardar</button></div></Modal></>}
+
+        {tab === "budget" && <><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}><div><h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Presupuesto</h1><p style={{ fontSize: 14, color: "#94a3b8", margin: "4px 0 0" }}>Monitorea tus gastos</p></div><div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}><button onClick={() => setShowAddBudget(true)} style={{ ...BP, width: "auto" }}>+ Categoría</button><button onClick={() => setShowAddFixed(true)} style={BS}>+ Gasto fijo</button></div></div>
+          <div className="fc" style={{ marginBottom: 20 }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 12 }}><h3 className="st">Presupuesto total</h3><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={{ fontSize: 13, color: "#64748b" }}>Límite:</span><input type="number" placeholder="500000" value={totalBudget || ""} onChange={e => saveTotalBudget(parseInt(e.target.value) || 0)} style={{ ...IS, width: 140 }} /></div></div>{totalBudget > 0 && <HBar value={totalSpentAll} max={totalBudget} color="#6366f1" label="Gasto total" amount={CLP(totalSpentAll)} />}</div>
+          <div className="fg" style={{ display: "flex", gap: 20 }}><div style={{ flex: 2, minWidth: 0 }}><div className="fc"><h3 className="st">Por categoría</h3>{budgetCats.length === 0 ? <div style={{ padding: "40px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Agrega categorías</div> : budgetCats.map((b, i) => <HBar key={i} value={budgetSpent[b.category] || 0} max={b.limit} color={getColor(b.category)} label={b.category} amount={CLP(budgetSpent[b.category] || 0)} />)}</div></div><div className="fs" style={{ flex: 1, minWidth: 280, maxWidth: 340 }}><div className="fc"><h3 className="st">Gastos fijos</h3>{fixedExps.length === 0 ? <div style={{ padding: "30px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Sin gastos fijos</div> : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{fixedExps.map((f, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 10, padding: "10px 12px", background: "#f8fafc", borderRadius: 10 }}><div style={{ width: 8, height: 8, borderRadius: 2, background: getColor(f.category) }} /><div style={{ flex: 1 }}><div style={{ fontSize: 13, fontWeight: 600 }}>{f.name}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>Día {f.dueDay}</div></div><span style={{ fontSize: 13, fontWeight: 700 }}>{CLP(f.amount)}</span><button onClick={() => saveFixed(fixedExps.filter(x => x.id !== f.id))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 12 }}>✕</button></div>)}<div style={{ borderTop: "1px solid #e2e8f0", paddingTop: 10, display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 13, fontWeight: 600, color: "#64748b" }}>Total fijo</span><span style={{ fontSize: 15, fontWeight: 700 }}>{CLP(fixedTotal)}</span></div></div>}</div></div></div>
+          <Modal open={showAddBudget} onClose={() => setShowAddBudget(false)} title="Presupuesto por categoría"><div style={{ display: "flex", flexDirection: "column", gap: 14 }}><div className="ff"><label>Categoría</label><select style={SS} value={newBudget.category} onChange={e => setNewBudget({ ...newBudget, category: e.target.value })}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div><div className="ff"><label>Límite (CLP)</label><input style={IS} type="number" placeholder="100000" value={newBudget.limit} onChange={e => setNewBudget({ ...newBudget, limit: e.target.value })} /></div><button style={BP} onClick={addBudgetCat}>Guardar</button></div></Modal>
+          <Modal open={showAddFixed} onClose={() => setShowAddFixed(false)} title="Gasto fijo"><div style={{ display: "flex", flexDirection: "column", gap: 14 }}><div className="ff"><label>Nombre</label><input style={IS} placeholder="Arriendo" value={newFixed.name} onChange={e => setNewFixed({ ...newFixed, name: e.target.value })} /></div><div className="ff"><label>Monto (CLP)</label><input style={IS} type="number" placeholder="350000" value={newFixed.amount} onChange={e => setNewFixed({ ...newFixed, amount: e.target.value })} /></div><div className="ff"><label>Categoría</label><select style={SS} value={newFixed.category} onChange={e => setNewFixed({ ...newFixed, category: e.target.value })}>{CATEGORIES.map(c => <option key={c}>{c}</option>)}</select></div><div className="ff"><label>Día de pago</label><input style={IS} type="number" min="1" max="31" value={newFixed.dueDay} onChange={e => setNewFixed({ ...newFixed, dueDay: e.target.value })} /></div><button style={BP} onClick={addFixedExp}>Guardar</button></div></Modal></>}
+
+        {tab === "savings" && <><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}><div><h1 style={{ fontSize: 24, fontWeight: 700, margin: 0 }}>Ahorro</h1><p style={{ fontSize: 14, color: "#94a3b8", margin: "4px 0 0" }}>Tu cuenta de ahorro</p></div><div style={{ display: "flex", gap: 8 }}><button onClick={() => setShowAddDeposit(true)} style={{ ...BP, width: "auto" }}>+ Depositar</button><button onClick={() => setEditingSavings(true)} style={BS}>⚙️ Configurar</button></div></div>
+          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(170px,1fr))", gap: 16, marginBottom: 24 }}>{[{ l: "Total ahorrado", v: CLP(totalSaved), c: "#6366f1", bg: "#eef2ff", i: "🐷" }, { l: "Semanal", v: CLP(weeklySavings), c: "#06b6d4", bg: "#ecfeff", i: "📅" }, { l: "Mensual", v: CLP(monthlySavings), c: "#10b981", bg: "#f0fdf4", i: "📆" }, { l: "% ingreso", v: `${savingsConfig.pct}%`, c: "#f59e0b", bg: "#fffbeb", i: "⚙️" }].map((m, i) => <div className="fc" key={i} style={{ animation: `fadeIn .4s ease ${i * .08}s both` }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 10 }}><span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: ".05em" }}>{m.l}</span><span style={{ width: 30, height: 30, borderRadius: 8, background: m.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13 }}>{m.i}</span></div><div style={{ fontSize: 20, fontWeight: 700 }}>{m.v}</div></div>)}</div>
+          <div className="fg" style={{ display: "flex", gap: 20 }}><div style={{ flex: 2, minWidth: 0, display: "flex", flexDirection: "column", gap: 20 }}>
+            <div className="fc"><h3 className="st">Meta: {savingsConfig.goalName}</h3><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}><span style={{ fontSize: 22, fontWeight: 700, color: "#6366f1" }}>{CLP(totalSaved)}</span><span style={{ fontSize: 16, fontWeight: 600, color: "#94a3b8" }}>de {CLP(savingsConfig.goalAmount)}</span></div><div style={{ height: 12, borderRadius: 6, background: "#f1f5f9", overflow: "hidden", marginBottom: 6 }}><div style={{ height: "100%", width: `${savingsGoalPct}%`, background: "linear-gradient(90deg,#6366f1,#818cf8)", borderRadius: 6 }} /></div><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, color: "#6366f1", fontWeight: 600 }}>{savingsGoalPct}%</span><span style={{ fontSize: 12, color: "#94a3b8" }}>Faltan {CLP(Math.max(savingsConfig.goalAmount - totalSaved, 0))}</span></div><div style={{ background: "#f8fafc", borderRadius: 12, padding: 16, marginTop: 16 }}><div style={{ fontSize: 12, fontWeight: 600, color: "#6366f1", marginBottom: 6 }}>✦ RECOMENDACIÓN</div><div style={{ fontSize: 13 }}>Con ingresos de {CLP(totalInc)}, ahorra <strong>{CLP(suggestedSaving)}</strong> ({savingsConfig.pct}%) este mes.</div></div></div>
+            <div className="fc"><h3 className="st">Calculadora de proyección</h3><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(150px,1fr))", gap: 12, marginBottom: 20 }}><div className="ff"><label>Ingreso mensual</label><input style={IS} type="number" placeholder="1500000" value={calcIncome} onChange={e => setCalcIncome(e.target.value)} /></div><div className="ff"><label>Gastos estimados</label><input style={IS} type="number" placeholder="800000" value={calcExpenses} onChange={e => setCalcExpenses(e.target.value)} /></div><div className="ff"><label>Meses</label><input style={IS} type="number" value={calcMonths} onChange={e => setCalcMonths(e.target.value)} /></div></div>{(calcIncome || calcExpenses) && <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}><div style={{ background: "#eef2ff", borderRadius: 12, padding: 16 }}><div style={{ fontSize: 11, color: "#6366f1", fontWeight: 600 }}>AHORRO/MES ({savingsConfig.pct}%)</div><div style={{ fontSize: 20, fontWeight: 700, color: "#6366f1" }}>{CLP(calcResult.monthSave)}</div></div><div style={{ background: "#f0fdf4", borderRadius: 12, padding: 16 }}><div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>DISPONIBLE/MES</div><div style={{ fontSize: 20, fontWeight: 700, color: calcResult.available >= 0 ? "#10b981" : "#ef4444" }}>{CLP(calcResult.available)}</div></div><div style={{ background: "#eef2ff", borderRadius: 12, padding: 16 }}><div style={{ fontSize: 11, color: "#6366f1", fontWeight: 600 }}>AHORRO EN {calcMonths}M</div><div style={{ fontSize: 20, fontWeight: 700, color: "#6366f1" }}>{CLP(calcResult.totalSave)}</div></div><div style={{ background: "#f0fdf4", borderRadius: 12, padding: 16 }}><div style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>TOTAL DISPONIBLE</div><div style={{ fontSize: 20, fontWeight: 700, color: calcResult.totalAvailable >= 0 ? "#10b981" : "#ef4444" }}>{CLP(calcResult.totalAvailable)}</div></div></div>}</div></div>
+            <div className="fs" style={{ flex: 1, minWidth: 280, maxWidth: 340 }}><div className="fc"><h3 className="st">Depósitos</h3>{savingsDeposits.length === 0 ? <div style={{ padding: "30px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>Sin depósitos</div> : <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>{savingsDeposits.slice().reverse().map((d, i) => <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 12px", background: "#f8fafc", borderRadius: 10 }}><div><div style={{ fontSize: 13, fontWeight: 600, color: "#10b981" }}>+{CLP(d.amount)}</div><div style={{ fontSize: 11, color: "#94a3b8" }}>{d.date}</div></div><button onClick={() => saveSavingsDeposits(savingsDeposits.filter(x => x.id !== d.id))} style={{ background: "none", border: "none", cursor: "pointer", color: "#94a3b8", fontSize: 12 }}>✕</button></div>)}</div>}</div></div></div>
+          <Modal open={showAddDeposit} onClose={() => setShowAddDeposit(false)} title="Depositar"><div style={{ display: "flex", flexDirection: "column", gap: 14 }}><div className="ff"><label>Monto (CLP)</label><input style={IS} type="number" placeholder="50000" value={newDeposit} onChange={e => setNewDeposit(e.target.value)} /></div>{suggestedSaving > 0 && <div style={{ background: "#eef2ff", borderRadius: 10, padding: 12, fontSize: 13, color: "#6366f1" }}>💡 Sugerido: {CLP(suggestedSaving)} ({savingsConfig.pct}%)</div>}<button style={BP} onClick={addDeposit}>Depositar</button></div></Modal>
+          <Modal open={editingSavings} onClose={() => setEditingSavings(false)} title="Configurar ahorro"><div style={{ display: "flex", flexDirection: "column", gap: 14 }}><div className="ff"><label>% de ingreso</label><input style={IS} type="number" min="1" max="100" value={savingsConfig.pct} onChange={e => saveSavingsConfig({ ...savingsConfig, pct: parseInt(e.target.value) || 0 })} /></div><div className="ff"><label>Meta</label><input style={IS} value={savingsConfig.goalName} onChange={e => saveSavingsConfig({ ...savingsConfig, goalName: e.target.value })} /></div><div className="ff"><label>Objetivo (CLP)</label><input style={IS} type="number" value={savingsConfig.goalAmount} onChange={e => saveSavingsConfig({ ...savingsConfig, goalAmount: parseInt(e.target.value) || 0 })} /></div><button style={BP} onClick={() => setEditingSavings(false)}>Guardar</button></div></Modal></>}
+
+        {tab === "analytics" && <><h1 style={{ fontSize: 24, fontWeight: 700, margin: "0 0 24px" }}>Análisis</h1><div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(300px,1fr))", gap: 20 }}><div className="fc"><h3 className="st">Distribución</h3>{catData.length > 0 ? <DonutChart data={catData} /> : <div style={{ height: 250, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8" }}>Sin datos</div>}</div><div className="fc"><h3 className="st">Detalle</h3>{catData.length === 0 ? <div style={{ height: 250, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8" }}>Sin datos</div> : catData.map((c, i) => <div key={i} style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 14 }}><div style={{ width: 36, height: 36, borderRadius: 10, background: `${getColor(c.category)}15`, display: "flex", alignItems: "center", justifyContent: "center" }}><div style={{ width: 10, height: 10, borderRadius: 3, background: getColor(c.category) }} /></div><div style={{ flex: 1 }}><div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}><span style={{ fontSize: 13, fontWeight: 600 }}>{c.category}</span><span style={{ fontSize: 13, fontWeight: 700 }}>{CLP(c.amount)}</span></div><div style={{ height: 4, borderRadius: 2, background: "#f1f5f9" }}><div style={{ height: "100%", width: `${Math.round((c.amount / (totalExp + fixedTotal || 1)) * 100)}%`, background: getColor(c.category), borderRadius: 2 }} /></div></div><span style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", minWidth: 36, textAlign: "right" }}>{Math.round((c.amount / (totalExp + fixedTotal || 1)) * 100)}%</span></div>)}</div></div></>}
+      </main>
     </div>
-  );
-
-  const NAV = [
-    { id: "dashboard", label: "Inicio", icon: "📊" },
-    { id: "transactions", label: "Movimientos", icon: "📋" },
-    { id: "analytics", label: "Análisis", icon: "📈" },
-  ];
-
-  return (
-    <>
-      <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&display=swap');
-        @keyframes spin { to { transform: rotate(360deg) } }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(8px) } to { opacity: 1; transform: translateY(0) } }
-        @keyframes slideIn { from { opacity: 0; transform: translateX(-12px) } to { opacity: 1; transform: translateX(0) } }
-        @keyframes pulse { 0%,100% { opacity: 1 } 50% { opacity: 0.6 } }
-        .fin-card { background: #fff; border: 1px solid #e2e8f0; border-radius: 16px; padding: 20px; transition: box-shadow 0.2s; }
-        .fin-card:hover { box-shadow: 0 4px 24px rgba(0,0,0,0.06); }
-        .fin-btn { border: none; cursor: pointer; font-family: 'DM Sans', sans-serif; transition: all 0.2s; }
-        .fin-btn:hover { transform: translateY(-1px); }
-        .fin-metric { animation: fadeIn 0.5s ease both; }
-        .fin-nav-item { cursor: pointer; padding: 10px 20px; border-radius: 10px; font-size: 13px; font-weight: 500; transition: all 0.2s; display: flex; align-items: center; gap: 8px; }
-        .fin-nav-active { background: #6366f1; color: #fff !important; }
-        .fin-progress { height: 6px; border-radius: 3px; background: #f1f5f9; overflow: hidden; }
-        .fin-progress-bar { height: 100%; border-radius: 3px; transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
-        .fin-tx-row { display: flex; align-items: center; gap: 12px; padding: 12px 0; border-bottom: 1px solid #f1f5f9; transition: background 0.15s; cursor: default; }
-        .fin-tx-row:last-child { border-bottom: none; }
-        .fin-tx-row:hover { background: #f8fafc; margin: 0 -12px; padding: 12px; border-radius: 10px; border-bottom-color: transparent; }
-        @media (max-width: 768px) {
-          .fin-grid { flex-direction: column !important; }
-          .fin-sidebar { order: -1 !important; }
-          .fin-main-col { min-width: 0 !important; }
-        }
-      `}</style>
-
-      <div style={{ minHeight: "100vh", background: "#f8fafc", fontFamily: "'DM Sans', sans-serif", color: "#1e293b" }}>
-        {/* ─── Header ─── */}
-        <header style={{ background: "#fff", borderBottom: "1px solid #e2e8f0", padding: "0 24px", position: "sticky", top: 0, zIndex: 50 }}>
-          <div style={{ maxWidth: 1200, margin: "0 auto", display: "flex", alignItems: "center", justifyContent: "space-between", height: 64 }}>
-            <div style={{ display: "flex", alignItems: "center", gap: 32 }}>
-              <div style={{ fontSize: 20, fontWeight: 700, color: "#6366f1", letterSpacing: "-0.02em" }}>
-                FinZen <span style={{ color: "#c7d2fe" }}>✦</span>
-              </div>
-              <nav style={{ display: "flex", gap: 4 }}>
-                {NAV.map(n => (
-                  <div
-                    key={n.id}
-                    className={`fin-nav-item ${tab === n.id ? "fin-nav-active" : ""}`}
-                    onClick={() => setTab(n.id)}
-                    style={{ color: tab === n.id ? "#fff" : "#64748b" }}
-                  >
-                    <span>{n.icon}</span>
-                    <span>{n.label}</span>
-                  </div>
-                ))}
-              </nav>
-            </div>
-            <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-              {session?.user?.name && (
-                <span style={{ fontSize: 13, color: "#64748b" }}>
-                  {session.user.name}
-                </span>
-              )}
-              <button
-                className="fin-btn"
-                onClick={() => signOut({ callbackUrl: "/login" })}
-                style={{ background: "#f1f5f9", color: "#64748b", padding: "8px 16px", borderRadius: 10, fontSize: 13, fontWeight: 500 }}
-              >
-                Salir
-              </button>
-            </div>
-          </div>
-        </header>
-
-        {/* ─── Content ─── */}
-        <main style={{ maxWidth: 1200, margin: "0 auto", padding: "24px 24px 100px" }}>
-          {/* Title + Scan */}
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 24, flexWrap: "wrap", gap: 12 }}>
-            <div>
-              <h1 style={{ fontSize: 24, fontWeight: 700, margin: 0, letterSpacing: "-0.02em" }}>Dashboard</h1>
-              <p style={{ fontSize: 14, color: "#94a3b8", margin: "4px 0 0" }}>
-                Revisa tus indicadores y movimientos financieros
-              </p>
-            </div>
-            <button
-              className="fin-btn"
-              onClick={!scanning ? scan : undefined}
-              style={{
-                background: scanning ? "#e2e8f0" : "linear-gradient(135deg, #6366f1, #818cf8)",
-                color: scanning ? "#64748b" : "#fff",
-                padding: "10px 20px",
-                borderRadius: 12,
-                fontSize: 14,
-                fontWeight: 600,
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                boxShadow: scanning ? "none" : "0 4px 14px rgba(99,102,241,0.3)",
-              }}
-            >
-              {scanning ? (
-                <>
-                  <div style={{ width: 16, height: 16, border: "2px solid #94a3b8", borderTopColor: "transparent", borderRadius: "50%", animation: "spin 0.8s linear infinite" }} />
-                  {progress || "Escaneando..."}
-                </>
-              ) : (
-                <>📧 Detectar gastos</>
-              )}
-            </button>
-          </div>
-
-          {/* Error */}
-          {error && (
-            <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#dc2626", display: "flex", alignItems: "center", gap: 8 }}>
-              <span>⚠️</span> {error}
-            </div>
-          )}
-
-          {/* Saved notification */}
-          {saved && (
-            <div style={{ background: "#f0fdf4", border: "1px solid #bbf7d0", borderRadius: 12, padding: "12px 16px", marginBottom: 20, fontSize: 13, color: "#16a34a", display: "flex", alignItems: "center", gap: 8, animation: "fadeIn 0.4s ease" }}>
-              <span>✅</span> {txs.length} transacciones detectadas y guardadas
-            </div>
-          )}
-
-          {tab === "dashboard" && (
-            <>
-              {/* ─── Metric Cards ─── */}
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 16, marginBottom: 24 }}>
-                {[
-                  { label: "Ingresos", value: totalInc, color: "#10b981", bg: "#f0fdf4", icon: "↗", pct: 100 },
-                  { label: "Gastos", value: totalExp, color: "#ef4444", bg: "#fef2f2", icon: "↘", pct: expPct },
-                  { label: "Balance", value: balance, color: balance >= 0 ? "#10b981" : "#ef4444", bg: balance >= 0 ? "#f0fdf4" : "#fef2f2", icon: balance >= 0 ? "▲" : "▼", pct: null },
-                  { label: "Transacciones", value: txCount, color: "#6366f1", bg: "#eef2ff", icon: "#", pct: null, isCount: true },
-                ].map((m, i) => (
-                  <div className="fin-card fin-metric" key={i} style={{ animationDelay: `${i * 0.1}s` }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", marginBottom: 12 }}>
-                      <span style={{ fontSize: 12, fontWeight: 500, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>{m.label}</span>
-                      <span style={{ width: 32, height: 32, borderRadius: 10, background: m.bg, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 14, color: m.color }}>{m.icon}</span>
-                    </div>
-                    <div style={{ fontSize: 22, fontWeight: 700, color: "#1e293b", letterSpacing: "-0.02em" }}>
-                      {(m as any).isCount ? m.value : CLP(m.value)}
-                    </div>
-                    {m.pct !== null && (
-                      <div style={{ marginTop: 10 }}>
-                        <div className="fin-progress">
-                          <div className="fin-progress-bar" style={{ width: `${m.pct}%`, background: m.color }} />
-                        </div>
-                        <span style={{ fontSize: 11, color: "#94a3b8", marginTop: 4, display: "block" }}>{m.pct}% del ingreso</span>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* ─── Main Grid ─── */}
-              <div className="fin-grid" style={{ display: "flex", gap: 20 }}>
-                {/* Left: Charts */}
-                <div className="fin-main-col" style={{ flex: 2, minWidth: 0, display: "flex", flexDirection: "column", gap: 20 }}>
-                  {/* Bar Chart */}
-                  <div className="fin-card">
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                      <div>
-                        <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b" }}>Resumen por período</h3>
-                      </div>
-                      <select
-                        value={filterPeriod}
-                        onChange={e => setFilterPeriod(e.target.value)}
-                        style={{ border: "1px solid #e2e8f0", borderRadius: 8, padding: "6px 12px", fontSize: 12, color: "#64748b", background: "#fff", fontFamily: "'DM Sans', sans-serif", cursor: "pointer" }}
-                      >
-                        <option value="all">Todos</option>
-                        <option value="3m">Últimos 3 meses</option>
-                        <option value="6m">Últimos 6 meses</option>
-                      </select>
-                    </div>
-                    {barData.some(d => d.value > 0) ? (
-                      <BarChart data={barData} />
-                    ) : (
-                      <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>
-                        Escanea tus correos para ver el gráfico 📧
-                      </div>
-                    )}
-                    <div style={{ display: "flex", gap: 16, marginTop: 12, justifyContent: "center" }}>
-                      {[{ label: "Gastos", color: "#6366f1" }, { label: "Ingresos", color: "#10b981" }].map((l, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 6 }}>
-                          <div style={{ width: 10, height: 10, borderRadius: 3, background: l.color }} />
-                          <span style={{ fontSize: 11, color: "#94a3b8" }}>{l.label}</span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  {/* Donut + Summary Row */}
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(250px, 1fr))", gap: 20 }}>
-                    {/* Donut */}
-                    <div className="fin-card">
-                      <h3 style={{ margin: "0 0 16px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b" }}>Gastos por categoría</h3>
-                      {catData.length > 0 ? (
-                        <DonutChart data={catData} />
-                      ) : (
-                        <div style={{ height: 200, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>
-                          Sin datos aún
-                        </div>
-                      )}
-                    </div>
-
-                    {/* Resumen General */}
-                    <div className="fin-card">
-                      <h3 style={{ margin: "0 0 4px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b" }}>Resumen general</h3>
-                      <p style={{ fontSize: 13, color: "#94a3b8", margin: "0 0 20px" }}>Resumen de tus métricas</p>
-
-                      {txCount > 0 ? (
-                        <div style={{ display: "flex", flexDirection: "column", gap: 20 }}>
-                          {[
-                            { label: "INGRESOS DETECTADOS", value: totalInc, color: "#10b981", icon: "📥", pct: 100 },
-                            { label: "GASTOS DETECTADOS", value: totalExp, color: "#ef4444", icon: "📤", pct: expPct },
-                          ].map((item, i) => (
-                            <div key={i}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
-                                <span style={{ fontSize: 16 }}>{item.icon}</span>
-                                <span style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: "0.05em" }}>{item.label}</span>
-                              </div>
-                              <div style={{ fontSize: 20, fontWeight: 700, color: "#1e293b", marginBottom: 8 }}>{CLP(item.value)}</div>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div className="fin-progress" style={{ flex: 1 }}>
-                                  <div className="fin-progress-bar" style={{ width: `${item.pct}%`, background: item.color }} />
-                                </div>
-                                <span style={{ fontSize: 12, fontWeight: 600, color: item.color }}>{item.pct}%</span>
-                              </div>
-                            </div>
-                          ))}
-
-                          {topCategory && (
-                            <div style={{ background: "#f8fafc", borderRadius: 12, padding: "14px 16px", border: "1px solid #e2e8f0" }}>
-                              <div style={{ fontSize: 11, fontWeight: 600, color: "#6366f1", textTransform: "uppercase", letterSpacing: "0.05em", marginBottom: 4 }}>✦ Insight</div>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>
-                                {topCategory.category} es tu mayor gasto
-                              </div>
-                              <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 2 }}>
-                                Representa el {Math.round((topCategory.amount / totalExp) * 100)}% de tus gastos totales
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      ) : (
-                        <div style={{ height: 150, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>
-                          Sin datos aún
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                </div>
-
-                {/* ─── Right Sidebar ─── */}
-                <div className="fin-sidebar" style={{ flex: 1, minWidth: 280, maxWidth: 340 }}>
-                  {/* Scan Status */}
-                  <div className="fin-card" style={{ marginBottom: 20 }}>
-                    <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600, color: "#64748b" }}>Estado del escaneo</h3>
-                    <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "12px", background: txs.length > 0 ? "#f0fdf4" : "#f8fafc", borderRadius: 12, border: `1px solid ${txs.length > 0 ? "#bbf7d0" : "#e2e8f0"}` }}>
-                      <div style={{ width: 40, height: 40, borderRadius: 12, background: txs.length > 0 ? "#dcfce7" : "#f1f5f9", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18 }}>
-                        {scanning ? "⏳" : txs.length > 0 ? "✅" : "📧"}
-                      </div>
-                      <div>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>
-                          {scanning ? progress : txs.length > 0 ? `${txs.length} transacciones` : "Sin escanear"}
-                        </div>
-                        <div style={{ fontSize: 11, color: "#94a3b8" }}>
-                          {saved ? "Guardado localmente" : "Banco de Chile · Santander"}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Últimas transacciones */}
-                  <div className="fin-card" style={{ marginBottom: 20 }}>
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-                      <h3 style={{ margin: 0, fontSize: 14, fontWeight: 600, color: "#64748b" }}>Últimas transacciones</h3>
-                      {txs.length > 0 && (
-                        <span
-                          style={{ fontSize: 12, color: "#6366f1", cursor: "pointer", fontWeight: 500 }}
-                          onClick={() => setTab("transactions")}
-                        >
-                          Ver todas →
-                        </span>
-                      )}
-                    </div>
-                    {txs.length === 0 ? (
-                      <div style={{ padding: "24px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-                        Escanea tus correos para ver transacciones
-                      </div>
-                    ) : (
-                      <div>
-                        {txs.slice(0, 5).map((tx, i) => (
-                          <div className="fin-tx-row" key={i} style={{ animation: `slideIn 0.3s ease ${i * 0.05}s both` }}>
-                            <div style={{
-                              width: 36, height: 36, borderRadius: 10,
-                              background: tx.type === "income" ? "#f0fdf4" : "#eef2ff",
-                              display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16,
-                            }}>
-                              {tx.type === "income" ? "💰" : "💸"}
-                            </div>
-                            <div style={{ flex: 1, minWidth: 0 }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1e293b", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{tx.merchant}</div>
-                              <div style={{ fontSize: 11, color: "#94a3b8" }}>{tx.category} · {tx.date}</div>
-                            </div>
-                            <div style={{ fontWeight: 700, fontSize: 13, color: tx.type === "income" ? "#10b981" : "#1e293b", whiteSpace: "nowrap" }}>
-                              {tx.type === "income" ? "+" : "-"}{CLP(tx.amount)}
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Top Categorías */}
-                  <div className="fin-card">
-                    <h3 style={{ margin: "0 0 12px", fontSize: 14, fontWeight: 600, color: "#64748b" }}>Top categorías</h3>
-                    {catData.length === 0 ? (
-                      <div style={{ padding: "24px 0", textAlign: "center", color: "#94a3b8", fontSize: 13 }}>
-                        Sin datos aún
-                      </div>
-                    ) : (
-                      <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-                        {catData.slice(0, 5).map((c, i) => (
-                          <div key={i}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                                <div style={{ width: 8, height: 8, borderRadius: 2, background: getColor(c.category) }} />
-                                <span style={{ fontSize: 13, fontWeight: 500, color: "#1e293b" }}>{c.category}</span>
-                              </div>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{CLP(c.amount)}</span>
-                            </div>
-                            <div className="fin-progress">
-                              <div className="fin-progress-bar" style={{ width: `${Math.round((c.amount / totalExp) * 100)}%`, background: getColor(c.category) }} />
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </div>
-            </>
-          )}
-
-          {/* ─── Transactions Tab ─── */}
-          {tab === "transactions" && (
-            <div className="fin-card" style={{ animation: "fadeIn 0.3s ease" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 20 }}>
-                <h2 style={{ margin: 0, fontSize: 18, fontWeight: 700 }}>Movimientos ({txs.length})</h2>
-              </div>
-              {txs.length === 0 ? (
-                <div style={{ padding: "60px 0", textAlign: "center", color: "#94a3b8", fontSize: 14 }}>
-                  Escanea tus correos primero 📧
-                </div>
-              ) : (
-                <div>
-                  {txs.map((tx, i) => (
-                    <div className="fin-tx-row" key={i}>
-                      <div style={{
-                        width: 40, height: 40, borderRadius: 12,
-                        background: tx.type === "income" ? "#f0fdf4" : "#eef2ff",
-                        display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
-                      }}>
-                        {tx.type === "income" ? "💰" : "💸"}
-                      </div>
-                      <div style={{ flex: 1, minWidth: 0 }}>
-                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1e293b" }}>{tx.merchant}</div>
-                        <div style={{ fontSize: 12, color: "#94a3b8" }}>{tx.category} · {tx.date}</div>
-                      </div>
-                      <div style={{ textAlign: "right" }}>
-                        <div style={{ fontWeight: 700, fontSize: 14, color: tx.type === "income" ? "#10b981" : "#1e293b" }}>
-                          {tx.type === "income" ? "+" : "-"}{CLP(tx.amount)}
-                        </div>
-                        <div style={{ fontSize: 10, color: "#6366f1", fontWeight: 500 }}>⚡ auto</div>
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* ─── Analytics Tab ─── */}
-          {tab === "analytics" && (
-            <div style={{ animation: "fadeIn 0.3s ease" }}>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))", gap: 20 }}>
-                <div className="fin-card">
-                  <h3 style={{ margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b" }}>Distribución de gastos</h3>
-                  {catData.length > 0 ? <DonutChart data={catData} /> : (
-                    <div style={{ height: 250, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>Escanea tus correos primero 📧</div>
-                  )}
-                </div>
-                <div className="fin-card">
-                  <h3 style={{ margin: "0 0 20px", fontSize: 14, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "#64748b" }}>Detalle por categoría</h3>
-                  {catData.length === 0 ? (
-                    <div style={{ height: 250, display: "flex", alignItems: "center", justifyContent: "center", color: "#94a3b8", fontSize: 13 }}>Sin datos aún</div>
-                  ) : (
-                    <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
-                      {catData.map((c, i) => (
-                        <div key={i} style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                          <div style={{ width: 40, height: 40, borderRadius: 12, background: `${getColor(c.category)}15`, display: "flex", alignItems: "center", justifyContent: "center" }}>
-                            <div style={{ width: 12, height: 12, borderRadius: 3, background: getColor(c.category) }} />
-                          </div>
-                          <div style={{ flex: 1 }}>
-                            <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 4 }}>
-                              <span style={{ fontSize: 13, fontWeight: 600, color: "#1e293b" }}>{c.category}</span>
-                              <span style={{ fontSize: 13, fontWeight: 700, color: "#1e293b" }}>{CLP(c.amount)}</span>
-                            </div>
-                            <div className="fin-progress" style={{ height: 4 }}>
-                              <div className="fin-progress-bar" style={{ width: `${Math.round((c.amount / totalExp) * 100)}%`, background: getColor(c.category) }} />
-                            </div>
-                          </div>
-                          <span style={{ fontSize: 12, fontWeight: 600, color: "#94a3b8", minWidth: 36, textAlign: "right" }}>
-                            {Math.round((c.amount / totalExp) * 100)}%
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-        </main>
-      </div>
-    </>
-  );
+  </>);
 }
-
